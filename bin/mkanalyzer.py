@@ -220,6 +220,8 @@ struct eventBuffer
   //--------------------------------------------------------------------------
   // A read-only buffer 
   eventBuffer() : input(0), output(0), choose(std::map<std::string, bool>()) {}
+  // NOTE(KR): 여기서 choose 자료구조를 std::unordered_map 등으로
+  //           바꿔 메모리/탐색 효율을 개선할 수 있습니다.
   eventBuffer(itreestream& stream, std::string varlist="")
   : input(&stream),
     output(0),
@@ -254,7 +256,10 @@ struct eventBuffer
             sin >> key;
             if ( sin )
               {
-		        std::map<std::string, bool>::iterator it;
+                        // NOTE(KR): 접두사 비교 로직을 더 직관적으로 바꾸고 싶다면
+                        //           여기서 range-based for 문과 std::string_view 등을
+                        //           도입해도 됩니다.
+                        std::map<std::string, bool>::iterator it;
 		        for(it = choose.begin(); it != choose.end(); it++)
 		          {
 		            if ( it->first.length() > key.length() )
@@ -297,8 +302,9 @@ struct eventBuffer
     input->read(entry);
 
     // clear indexmap
+    // NOTE(KR): range-based for 문과 구조적 바인딩을 쓰면 더 간결하게 비울 수 있습니다.
     for(std::map<std::string, std::vector<int> >::iterator
-    item=indexmap.begin(); 
+    item=indexmap.begin();
     item != indexmap.end();
     ++item)
     item->second.clear();
@@ -379,6 +385,8 @@ int main(int argc, char** argv)
 
   // Get command line arguments
   commandLine cl(argc, argv);
+  // NOTE(KR): cl 구조체에 debug 플래그를 추가하고 싶다면
+  //           tnm/tnm.h, tnm/tnm.cc를 함께 수정해야 합니다.
     
   // Get names of ntuple files to be processed
   vector<string> filenames = fileNames(cl.filelist);
@@ -398,6 +406,8 @@ int main(int argc, char** argv)
   
   int nevents = ev.size();
   cout << "number of events: " << nevents << endl;
+  // NOTE(KR): 디버그 모드에서 처리 상황을 보고하려면 여기에서
+  //           주기적으로 로그를 출력하도록 루프를 확장하세요.
 
   // Create output file for histograms; see notes in header 
   outputFile of(cl.outputfilename);
@@ -415,7 +425,8 @@ int main(int argc, char** argv)
     {
       // read an event into event buffer
       ev.read(entry);
-
+      // NOTE(KR): entry 인덱스를 이용해 진행률/디버그 로그를 남기는
+      //           코드를 추가하기 좋은 위치입니다.
     }
     
   ev.close();
@@ -445,6 +456,8 @@ import ROOT
 def main():
 
     cl = ROOT.commandLine()
+    # NOTE(KR): commandLine 클래스에 debug 속성을 추가했다면
+    #           여기에서 cl.debug 값을 읽어와 로그에 활용하세요.
     
     # Get names of ntuple files to be processed
     filenames = ROOT.fileNames(cl.filelist)
@@ -479,6 +492,8 @@ def main():
     # ------------------------------------------------------------------------
     for entry in range(nevents):
         ev.read(entry)
+        # NOTE(KR): Python 분석기에서도 진행률 바 혹은 조건부 로그를
+        #           출력하려면 이 위치에서 print나 logging을 호출하면 됩니다.
         
     ev.close()
     of.close()
@@ -639,6 +654,7 @@ $(cintsrc)  : $(header) $(linkdef)
 \t@echo "---> Generating dictionary `basename $@`"
 \t$(AT)$(CINT) -f $@ -c -I. -Iinclude -I$(ROOTSYS)/include $+
 \t$(AT)mv $(srcdir)/*.pcm $(libdir)
+\t# NOTE(KR): dictionary가 필요 없다면 위 규칙과 sharedlib 의존성을 주석 처리하세요.
 
 # 	Define clean up rules
 clean   :
