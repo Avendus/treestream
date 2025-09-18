@@ -55,6 +55,7 @@ struct commandLine
   std::string progname;
   std::string filelist;
   std::string outputfilename;
+  bool debug;
 
   void decode(int argc, char** argv);
 };
