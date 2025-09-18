@@ -177,28 +177,17 @@ commandLine::decode(int argc, char** argv)
 
   progname = nameonly(std::string(argv[0]));
   if ( progname == "Python" || progname == "python" )
-    progname = std::string("analyzer");
+    progname = string("analyzer");
 
-  debug = false;
-  std::vector<std::string> positional;
-  for (int i = 1; i < argc; ++i)
-    {
-      std::string arg(argv[i]);
-      if ( arg == "-d" || arg == "--debug" )
-        {
-          debug = true;
-          continue;
-        }
-      positional.push_back(arg);
-    }
-
-  if ( positional.size() > 0 )
-    filelist = positional[0];
+  // 1st (optional) argument
+  if ( argc > 1 )
+    filelist = std::string(argv[1]);
   else
     filelist = std::string("filelist.txt");
 
-  if ( positional.size() > 1 )
-    outputfilename = positional[1];
+  // 2nd (optional) command line argument
+  if ( argc > 2 ) 
+    outputfilename = std::string(argv[2]);
   else
     outputfilename = progname + std::string("_histograms");
 

@@ -197,7 +197,6 @@ TEMPLATE_H =\
 #include <algorithm>
 #include <cmath>
 #include <map>
-#include <unordered_map>
 #include <cassert>
 #include "treestream.h"
 
@@ -220,11 +219,13 @@ struct eventBuffer
 %(selectimpl)s
   //--------------------------------------------------------------------------
   // A read-only buffer 
-  eventBuffer() : input(nullptr), output(nullptr), branchSelection() {}
+  eventBuffer() : input(0), output(0), choose(std::map<std::string, bool>()) {}
+  // NOTE(KR): 여기서 choose 자료구조를 std::unordered_map 등으로
+  //           바꿔 메모리/탐색 효율을 개선할 수 있습니다.
   eventBuffer(itreestream& stream, std::string varlist="")
   : input(&stream),
-    output(nullptr),
-    branchSelection()
+    output(0),
+    choose(std::map<std::string, bool>())
   {
     if ( !input->good() ) 
       {
@@ -235,10 +236,10 @@ struct eventBuffer
 
     initBuffers();
     
-    // default is to select all branches
-    bool selectAll = varlist == "";
+    // default is to select all branches      
+    bool DEFAULT = varlist == "";
 %(choose)s
-    if ( selectAll )
+    if ( DEFAULT )
       {
         std::cout << std::endl
                   << "eventBuffer - All branches selected"
@@ -255,16 +256,20 @@ struct eventBuffer
             sin >> key;
             if ( sin )
               {
-                        for(auto& item : branchSelection)
-                          {
-                            if ( item.first.length() > key.length() )
-                              {
-                                    if ( item.first.substr(0, key.size()) == key )
-                                      {
-                                        item.second = true;
-                                      }
-                              }
-                          }
+                        // NOTE(KR): 접두사 비교 로직을 더 직관적으로 바꾸고 싶다면
+                        //           여기서 range-based for 문과 std::string_view 등을
+                        //           도입해도 됩니다.
+                        std::map<std::string, bool>::iterator it;
+		        for(it = choose.begin(); it != choose.end(); it++)
+		          {
+		            if ( it->first.length() > key.length() )
+		              {
+			            if ( it->first.substr(0, key.size()) == key )
+			              {
+			                choose[it->first] = true;
+			              }
+		              }
+                  }
               }
           }
       }
@@ -297,8 +302,12 @@ struct eventBuffer
     input->read(entry);
 
     // clear indexmap
-    for(auto& item : indexmap)
-      item.second.clear();
+    // NOTE(KR): range-based for 문과 구조적 바인딩을 쓰면 더 간결하게 비울 수 있습니다.
+    for(std::map<std::string, std::vector<int> >::iterator
+    item=indexmap.begin();
+    item != indexmap.end();
+    ++item)
+    item->second.clear();
   }
 
   void select(std::string objname)
@@ -343,14 +352,14 @@ struct eventBuffer
  // --- indexmap keeps track of which objects have been flagged for selection
  std::map<std::string, std::vector<int> > indexmap;
 
-// to read events
-itreestream* input;
+ // to read events
+ itreestream* input;
 
-// to write events
-otreestream* output;
+ // to write events
+ otreestream* output;
 
-// switches for choosing branches
- std::unordered_map<std::string, bool> branchSelection;
+ // switches for choosing branches
+ std::map<std::string, bool> choose;
 
 }; 
 #endif
@@ -376,16 +385,14 @@ int main(int argc, char** argv)
 
   // Get command line arguments
   commandLine cl(argc, argv);
-
-  if (cl.debug)
-    cout << "[DEBUG] Debugging enabled" << endl;
-
+  // NOTE(KR): cl 구조체에 debug 플래그를 추가하고 싶다면
+  //           tnm/tnm.h, tnm/tnm.cc를 함께 수정해야 합니다.
+    
   // Get names of ntuple files to be processed
-  vector<string> inputFiles = fileNames(cl.filelist);
-  cout << "Processing " << inputFiles.size() << " file(s)" << endl;
+  vector<string> filenames = fileNames(cl.filelist);
 
   // Create tree reader
-  itreestream stream(inputFiles, "%(treename)s");
+  itreestream stream(filenames, "%(treename)s");
   if ( !stream.good() ) error("can't read root input files");
 
   // Create a buffer to receive events from the stream
@@ -393,12 +400,14 @@ int main(int argc, char** argv)
   // Use second argument to select specific branches
   // Example:
   //   varlist = 'Jet_PT Jet_Eta Jet_Phi'
-  //   event = eventBuffer(stream, varlist)
+  //   ev = eventBuffer(stream, varlist)
 
-  eventBuffer event(stream);
-
-  size_t numEvents = event.size();
-  cout << "Number of events: " << numEvents << endl;
+  eventBuffer ev(stream);
+  
+  int nevents = ev.size();
+  cout << "number of events: " << nevents << endl;
+  // NOTE(KR): 디버그 모드에서 처리 상황을 보고하려면 여기에서
+  //           주기적으로 로그를 출력하도록 루프를 확장하세요.
 
   // Create output file for histograms; see notes in header 
   outputFile of(cl.outputfilename);
@@ -412,18 +421,16 @@ int main(int argc, char** argv)
   // Loop over events
   // -------------------------------------------------------------------------
   
-  for(size_t entry = 0; entry < numEvents; ++entry)
+  for(int entry=0; entry < nevents; entry++)
     {
       // read an event into event buffer
-      event.read(entry);
-      if (cl.debug && entry % 100000 == 0)
-        cout << "[DEBUG] processed " << entry << " events" << endl;
+      ev.read(entry);
+      // NOTE(KR): entry 인덱스를 이용해 진행률/디버그 로그를 남기는
+      //           코드를 추가하기 좋은 위치입니다.
     }
-
-  event.close();
+    
+  ev.close();
   of.close();
-  cout << "Analysis complete. Output written to "
-       << cl.outputfilename << endl;
   return 0;
 }
 '''
@@ -449,16 +456,14 @@ import ROOT
 def main():
 
     cl = ROOT.commandLine()
-
-    if cl.debug:
-        print("[DEBUG] Debugging enabled")
-
+    # NOTE(KR): commandLine 클래스에 debug 속성을 추가했다면
+    #           여기에서 cl.debug 값을 읽어와 로그에 활용하세요.
+    
     # Get names of ntuple files to be processed
-    input_files = ROOT.fileNames(cl.filelist)
-    print(f"Processing {len(input_files)} file(s)")
+    filenames = ROOT.fileNames(cl.filelist)
 
     # Create tree reader
-    stream = ROOT.itreestream(input_files, "%(treename)s")
+    stream = ROOT.itreestream(filenames, "%(treename)s")
     if not stream.good():
         error("can't read input files")
 
@@ -467,12 +472,12 @@ def main():
     # Use second argument to select specific branches
     # Example:
     #   varlist = 'Jet_PT Jet_Eta Jet_Phi'
-    #   event = ROOT.eventBuffer(stream, varlist)
+    #   ev = ROOT.eventBuffer(stream, varlist)
     #
-    event = ROOT.eventBuffer(stream)
+    ev = ROOT.eventBuffer(stream)
 
-    num_events = event.size()
-    print("Number of events:", num_events)
+    nevents = ev.size()
+    print("number of events:", nevents)
 
     # Create file to store histograms
     of = ROOT.outputFile(cl.outputfilename)
@@ -485,14 +490,13 @@ def main():
     # ------------------------------------------------------------------------
     # Loop over events
     # ------------------------------------------------------------------------
-    for entry in range(num_events):
-        event.read(entry)
-        if cl.debug and entry % 100000 == 0:
-            print(f"[DEBUG] processed {entry} events")
-
-    event.close()
+    for entry in range(nevents):
+        ev.read(entry)
+        # NOTE(KR): Python 분석기에서도 진행률 바 혹은 조건부 로그를
+        #           출력하려면 이 위치에서 print나 logging을 호출하면 됩니다.
+        
+    ev.close()
     of.close()
-    print("Analysis complete. Output written to", cl.outputfilename)
 # ----------------------------------------------------------------------------
 try:
    main()
@@ -565,8 +569,7 @@ else
 CXX     := g++
 LINK	:= g++
 endif 
-# Use rootcling for ROOT6+ dictionary generation
-ROOTCLING    := rootcling
+CINT	:= rootcint
 
 #-----------------------------------------------------------------------
 # 	Define paths to be searched for C++ header files (#include ....)
@@ -649,8 +652,9 @@ $(objects)	: $(tmpdir)/%(percent)s.o	: $(srcdir)/%(percent)s.cc
 
 $(cintsrc)  : $(header) $(linkdef)
 \t@echo "---> Generating dictionary `basename $@`"
-\t$(AT)$(ROOTCLING) -f $@ -c -I. -Iinclude -I$(ROOTSYS)/include $+
+\t$(AT)$(CINT) -f $@ -c -I. -Iinclude -I$(ROOTSYS)/include $+
 \t$(AT)mv $(srcdir)/*.pcm $(libdir)
+\t# NOTE(KR): dictionary가 필요 없다면 위 규칙과 sharedlib 의존성을 주석 처리하세요.
 
 # 	Define clean up rules
 clean   :
@@ -974,7 +978,7 @@ def main():
     setb      = []
     addb      = []
     impl      = []
-    branchsel = []
+    choose    = []
     
     # get all leaf counters
     counters = set()
@@ -1030,8 +1034,8 @@ def main():
             choosename = str.split(branchname, '/')[-1]
         else:
             choosename = branchname
-        branchsel.append('  branchSelection["%s"]\t= selectAll;' % choosename)
-        setb.append('  if ( branchSelection["%s"] )'   % choosename)
+        choose.append('  choose["%s"]\t= DEFAULT;' % choosename)
+        setb.append('  if ( choose["%s"] )'   % choosename)
         cmd = '    input->select("%s", \t%s);' % (branchname, varname)
         if len(cmd) < 75:
             setb.append(cmd)
@@ -1263,7 +1267,7 @@ def main():
              'vardecl':    join("", declarevec, "\n"),
              'init':       join("", init, "\n"),
              'setb':       join("  ", setb, "\n"),
-             'choose':     join("  ", branchsel, "\n"),
+             'choose':     join("  ", choose, "\n"),
              'addb':       join("  ", addb, "\n"),
              'structdecl': join("", structdecl, "\n"),
              'structimpl': join("", structimpl, "\n"),
